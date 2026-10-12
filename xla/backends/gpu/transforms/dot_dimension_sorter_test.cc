@@ -21,10 +21,12 @@ limitations under the License.
 #include <memory>
 
 #include "xla/error_spec.h"
+#include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/hlo/ir/hlo_module.h"
 #include "xla/tests/hlo_pjrt_test_base.h"
 #include "xla/tsl/platform/statusor.h"
 #include "xla/xla.pb.h"
+#include "xla/xla_data.pb.h"
 
 namespace xla::gpu {
 namespace {
@@ -159,6 +161,63 @@ ENTRY e {
 
   ASSERT_OK_AND_ASSIGN(bool modified, DotDimensionSorter().Run(module.get()));
   EXPECT_FALSE(modified);
+}
+
+TEST_F(DotDimensionSorterTest, SortContractingDimsKeepsBlockScaling) {
+  const char* module_string = R"(
+HloModule m
+
+ENTRY e {
+  p0 = bf16[1,144,96,64] parameter(0)
+  p1 = bf16[122,96,64] parameter(1)
+  lhs_scale = f8e8m0fnu[1,144,96,2] parameter(2)
+  ROOT _ = bf16[1,144,122] dot(p0, p1, lhs_scale),
+    lhs_contracting_dims={3,2}, rhs_contracting_dims={2,1},
+    block_scaling_config={lhs={scale_idx=2 strides=1x1x1x32 steps=1x1x1x1}}
+}
+)";
+
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
+                       ParseAndReturnVerifiedModule(module_string));
+  ASSERT_OK_AND_ASSIGN(bool modified, DotDimensionSorter().Run(module.get()));
+  EXPECT_TRUE(modified);
+
+  const HloInstruction* dot = module->entry_computation()->root_instruction();
+  EXPECT_EQ(dot->dot_dimension_numbers().lhs_contracting_dimensions(0), 2);
+  EXPECT_EQ(dot->dot_dimension_numbers().lhs_contracting_dimensions(1), 3);
+  ASSERT_EQ(dot->operand_count(), 3);
+  EXPECT_EQ(dot->operand(2)->name(), "lhs_scale");
+  ASSERT_TRUE(dot->block_scaling_config().has_lhs());
+  EXPECT_EQ(dot->block_scaling_config().lhs().scale_idx(), 2);
+}
+
+TEST_F(DotDimensionSorterTest, SortContractingDimsKeepsSparsity) {
+  const char* module_string = R"(
+HloModule m
+
+ENTRY e {
+  p0 = bf16[1,144,96,32] parameter(0)
+  p1 = bf16[122,96,64] parameter(1)
+  lhs_indices = s8[1,144,96,8] parameter(2)
+  ROOT _ = bf16[1,144,122] dot(p0, p1, lhs_indices),
+    lhs_contracting_dims={3,2}, rhs_contracting_dims={2,1},
+    sparsity_config={lhs={sparsity=2x4 dimension=3 stride=1 idx=2}}
+}
+)";
+
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<HloModule> module,
+                       ParseAndReturnVerifiedModule(module_string));
+  ASSERT_OK_AND_ASSIGN(bool modified, DotDimensionSorter().Run(module.get()));
+  EXPECT_TRUE(modified);
+
+  const HloInstruction* dot = module->entry_computation()->root_instruction();
+  EXPECT_EQ(dot->dot_dimension_numbers().lhs_contracting_dimensions(0), 2);
+  EXPECT_EQ(dot->dot_dimension_numbers().lhs_contracting_dimensions(1), 3);
+  ASSERT_EQ(dot->operand_count(), 3);
+  EXPECT_EQ(dot->operand(2)->name(), "lhs_indices");
+  ASSERT_TRUE(dot->sparsity_config().has_lhs());
+  EXPECT_EQ(dot->sparsity_config().lhs().dimension(), 3);
+  EXPECT_EQ(dot->sparsity_config().lhs().idx(), 2);
 }
 
 }  // namespace

@@ -69,9 +69,11 @@ absl::Status SortDotDimensions(HloDotInstruction* dot) {
       Permute(dims.rhs_contracting_dimensions(), permutation);
   *new_dims.mutable_rhs_contracting_dimensions() = {sorted_rhs.begin(),
                                                     sorted_rhs.end()};
+  // Operand shapes are unchanged, so extra scaling/sparsity operands and their
+  // configs carry over as is.
   std::unique_ptr<HloInstruction> new_dot = HloInstruction::CreateDot(
-      dot->shape(), dot->mutable_operand(0), dot->mutable_operand(1), new_dims,
-      dot->precision_config());
+      dot->shape(), dot->operands(), new_dims, dot->precision_config(),
+      dot->sparsity_config(), dot->block_scaling_config());
   dot->SetupDerivedInstruction(new_dot.get());
 
   VLOG(3) << "Sorted dot() dimensions:\n"
