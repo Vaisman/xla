@@ -93,6 +93,11 @@ class NormalizerVisitor : public DfsHloRewriteVisitor {
             normalize_noncontracting_dimensions) {}
 
   absl::Status HandleDot(HloInstruction* dot) override {
+    // Rewriting rebuilds the dot from lhs and rhs only, so skip dots with
+    // extra scaling/sparsity operands.
+    if (dot->operand_count() > 2) {
+      return absl::OkStatus();
+    }
     ABSL_ASSIGN_OR_RETURN(DotOperandDims lhs_dims,
                           DotOperandDims::FromDotOperand(dot, 0));
     ABSL_ASSIGN_OR_RETURN(DotOperandDims rhs_dims,

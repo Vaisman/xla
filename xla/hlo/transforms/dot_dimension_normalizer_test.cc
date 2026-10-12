@@ -323,5 +323,47 @@ ENTRY e {
   )");
 }
 
+TEST_F(DotDimensionNormalizerTest, SkipBlockScaledDot) {
+  const std::string kHloText = R"(
+HloModule m
+
+ENTRY e {
+ p0 = bf16[12,2,64] parameter(0)
+ p1 = bf16[2,64,16] parameter(1)
+ lhs_scale = f8e8m0fnu[12,2,2] parameter(2)
+ ROOT d = bf16[12,16] dot(p0, p1, lhs_scale),
+  lhs_batch_dims={}, lhs_contracting_dims={1,2},
+  rhs_batch_dims={}, rhs_contracting_dims={0,1},
+  block_scaling_config={lhs={scale_idx=2 strides=1x1x32 steps=1x1x1}}
+})";
+
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<VerifiedHloModule> module,
+                       ParseAndReturnVerifiedModule(kHloText));
+  ASSERT_OK_AND_ASSIGN(bool modified,
+                       DotDimensionNormalizer().Run(module.get()));
+  EXPECT_FALSE(modified);
+}
+
+TEST_F(DotDimensionNormalizerTest, SkipSparseDot) {
+  const std::string kHloText = R"(
+HloModule m
+
+ENTRY e {
+ p0 = bf16[12,2,32] parameter(0)
+ p1 = bf16[2,64,16] parameter(1)
+ lhs_indices = s8[12,2,8] parameter(2)
+ ROOT d = bf16[12,16] dot(p0, p1, lhs_indices),
+  lhs_batch_dims={}, lhs_contracting_dims={1,2},
+  rhs_batch_dims={}, rhs_contracting_dims={0,1},
+  sparsity_config={lhs={sparsity=2x4 dimension=2 stride=1 idx=2}}
+})";
+
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<VerifiedHloModule> module,
+                       ParseAndReturnVerifiedModule(kHloText));
+  ASSERT_OK_AND_ASSIGN(bool modified,
+                       DotDimensionNormalizer().Run(module.get()));
+  EXPECT_FALSE(modified);
+}
+
 }  // namespace
 }  // namespace xla

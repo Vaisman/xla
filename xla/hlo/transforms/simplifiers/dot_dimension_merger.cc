@@ -64,6 +64,11 @@ std::vector<int64_t> ShiftDimensions(absl::Span<const int64_t> dimensions,
 class BatchDimensionMerger : public DfsHloRewriteVisitor {
  public:
   absl::Status HandleDot(HloInstruction* dot) override {
+    // Rewriting rebuilds the dot from lhs and rhs only, so skip dots with
+    // extra scaling/sparsity operands.
+    if (dot->operand_count() > 2) {
+      return absl::OkStatus();
+    }
     const DotDimensionNumbers& dnums = dot->dot_dimension_numbers();
     const Shape& lhs_shape = dot->operand(0)->shape();
     const Shape& rhs_shape = dot->operand(1)->shape();

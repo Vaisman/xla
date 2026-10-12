@@ -139,5 +139,47 @@ ENTRY e {
   EXPECT_FALSE(modified);
 }
 
+TEST_F(DotDimensionMergerTest, SkipBlockScaledDot) {
+  const std::string kHloText = R"(
+HloModule m
+
+ENTRY e {
+ p0 = bf16[2,4,12,64] parameter(0)
+ p1 = bf16[2,4,64,16] parameter(1)
+ lhs_scale = f8e8m0fnu[2,4,12,2] parameter(2)
+ ROOT d = bf16[2,4,12,16] dot(p0, p1, lhs_scale),
+  lhs_batch_dims={0,1}, lhs_contracting_dims={3},
+  rhs_batch_dims={0,1}, rhs_contracting_dims={2},
+  block_scaling_config={lhs={scale_idx=2 strides=1x1x1x32 steps=1x1x1x1}}
+})";
+
+  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<VerifiedHloModule> module,
+                          ParseAndReturnVerifiedModule(kHloText));
+  TF_ASSERT_OK_AND_ASSIGN(bool modified,
+                          DotDimensionMerger().Run(module.get()));
+  EXPECT_FALSE(modified);
+}
+
+TEST_F(DotDimensionMergerTest, SkipSparseDot) {
+  const std::string kHloText = R"(
+HloModule m
+
+ENTRY e {
+ p0 = bf16[2,4,12,32] parameter(0)
+ p1 = bf16[2,4,64,16] parameter(1)
+ lhs_indices = s8[2,4,12,8] parameter(2)
+ ROOT d = bf16[2,4,12,16] dot(p0, p1, lhs_indices),
+  lhs_batch_dims={0,1}, lhs_contracting_dims={3},
+  rhs_batch_dims={0,1}, rhs_contracting_dims={2},
+  sparsity_config={lhs={sparsity=2x4 dimension=3 stride=1 idx=2}}
+})";
+
+  TF_ASSERT_OK_AND_ASSIGN(std::unique_ptr<VerifiedHloModule> module,
+                          ParseAndReturnVerifiedModule(kHloText));
+  TF_ASSERT_OK_AND_ASSIGN(bool modified,
+                          DotDimensionMerger().Run(module.get()));
+  EXPECT_FALSE(modified);
+}
+
 }  // namespace
 }  // namespace xla
