@@ -155,6 +155,40 @@ TEST_P(GemvRewriterTest, DotNotRewriteMatrixMatrixMultiplication) {
                             /*expected=*/std::nullopt);
 }
 
+TEST_P(GemvRewriterTest, DotNotRewriteBlockScaledDot) {
+  const char* hlo = R"(
+  HloModule m
+
+  ENTRY e {
+    p0 = bf16[32,64] parameter(0)
+    p1 = bf16[64] parameter(1)
+    rhs_scale = f8e8m0fnu[2] parameter(2)
+    ROOT d = bf16[32] dot(p0, p1, rhs_scale),
+      lhs_contracting_dims={1}, rhs_contracting_dims={0},
+      block_scaling_config={rhs={scale_idx=2 strides=32 steps=1}}
+  })";
+
+  RunAndFilecheckHloRewrite(hlo, GemvRewriter(is_layout_sensitive_),
+                            /*expected=*/std::nullopt);
+}
+
+TEST_P(GemvRewriterTest, DotNotRewriteSparseDot) {
+  const char* hlo = R"(
+  HloModule m
+
+  ENTRY e {
+    p0 = bf16[32,32] parameter(0)
+    p1 = bf16[64] parameter(1)
+    lhs_indices = s8[32,8] parameter(2)
+    ROOT d = bf16[32] dot(p0, p1, lhs_indices),
+      lhs_contracting_dims={1}, rhs_contracting_dims={0},
+      sparsity_config={lhs={sparsity=2x4 dimension=1 stride=1 idx=2}}
+  })";
+
+  RunAndFilecheckHloRewrite(hlo, GemvRewriter(is_layout_sensitive_),
+                            /*expected=*/std::nullopt);
+}
+
 TEST_P(GemvRewriterTest, DoNotRewriteDotsWithNonNormalizedLayout) {
   const char* hlo = R"(
   HloModule m

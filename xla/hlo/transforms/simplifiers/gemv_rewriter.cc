@@ -61,6 +61,11 @@ class GemvRewriterVisitor : public DfsHloRewriteVisitor {
       : is_layout_sensitive_(is_layout_sensitive) {}
 
   absl::Status HandleDot(HloInstruction* instr) override {
+    // Rewriting rebuilds the dot from lhs and rhs only, so skip dots with
+    // extra scaling/sparsity operands.
+    if (instr->operand_count() > 2) {
+      return absl::OkStatus();
+    }
     HloDotInstruction* dot = Cast<HloDotInstruction>(instr);
     const DotDimensionNumbers& dim_numbers = dot->dot_dimension_numbers();
     HloInstruction* lhs = dot->mutable_operand(0);
